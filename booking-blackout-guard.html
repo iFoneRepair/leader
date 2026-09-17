@@ -1,0 +1,290 @@
+<!--
+  Booking Blackout Guard
+  ======================
+  Storefront-side safety net for the appointment booking widget.
+
+  Why this exists: the Appointment Pro calendar blocks are not being honoured by
+  the booking widget, so customers can still pick slots on days the office is
+  closed. This snippet enforces the blackout on the storefront itself, so it
+  works no matter what the app's own availability call returns.
+
+  Paste this entire block just before the closing </body> tag (theme.liquid on
+  Shopify), on every page that contains the booking widget (or site-wide).
+
+  It does three things, in layers:
+    1. Greys out and disables calendar day cells that fall on a blocked date.
+    2. Cancels any click on a blocked date, even if the widget re-renders.
+    3. Blocks add-to-cart / form submissions that carry a blocked date in their
+       booking properties (last line of defence if a slot slips through).
+
+  Edit BLOCKED_DATES below to change the closure. Dates are YYYY-MM-DD, local time.
+-->
+<style>
+  .bbg-blocked-date {
+    opacity: 0.35 !important;
+    pointer-events: none !important;
+    cursor: not-allowed !important;
+    text-decoration: line-through;
+  }
+  #bbg-notice {
+    position: fixed;
+    left: 50%;
+    bottom: 24px;
+    transform: translateX(-50%);
+    background: #1a1a1a;
+    color: #fff;
+    padding: 12px 18px;
+    border-radius: 8px;
+    font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+    z-index: 99999;
+    max-width: calc(100% - 32px);
+    text-align: center;
+  }
+  #bbg-notice[hidden] { display: none; }
+</style>
+
+<script>
+  (function () {
+    // ---- Configuration -----------------------------------------------------
+    var BLOCKED_DATES = ['2026-09-18', '2026-09-19', '2026-09-20'];
+    var NOTICE_TEXT = 'Sorry, we are closed on that day. Please choose another date.';
+    // Stop enforcing after this moment so the snippet is inert once the closure passes.
+    var GUARD_ENDS = new Date(2026, 8, 20, 23, 59, 59); // months are 0-based: 8 = September
+    // ------------------------------------------------------------------------
+
+    if (new Date() > GUARD_ENDS) { return; }
+
+    var blocked = {};
+    BLOCKED_DATES.forEach(function (d) { blocked[d] = true; });
+
+    var MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july',
+      'august', 'september', 'october', 'november', 'december'];
+    var MONTH_RE = /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/i;
+
+    function pad(n) { return (n < 10 ? '0' : '') + n; }
+    function iso(y, m, d) { return y + '-' + pad(m) + '-' + pad(d); }
+    function monthIndex(name) {
+      var short = name.slice(0, 3).toLowerCase();
+      for (var i = 0; i < 12; i++) { if (MONTHS[i].slice(0, 3) === short) { return i + 1; } }
+      return 0;
+    }
+
+    // Turn a string that contains a full date into YYYY-MM-DD, or null.
+    function parseDateString(s) {
+      if (!s || typeof s !== 'string') { return null; }
+      var m;
+      // 2026-09-18 (optionally followed by a time)
+      if ((m = s.match(/(\d{4})-(\d{2})-(\d{2})/))) { return iso(+m[1], +m[2], +m[3]); }
+      // 9/18/2026 (US) or 18/09/2026 (day-first) – accept both, prefer the one that is valid.
+      if ((m = s.match(/\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/))) {
+        var a = +m[1], b = +m[2], y = +m[3];
+        if (a <= 12 && b <= 31) { return iso(y, a, b); }
+        if (b <= 12 && a <= 31) { return iso(y, b, a); }
+      }
+      // September 18, 2026  /  Sep 18 2026
+      if ((m = s.match(new RegExp(MONTH_RE.source + '\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?,?\\s+(\\d{4})', 'i')))) {
+        return iso(+m[3], monthIndex(m[1]), +m[2]);
+      }
+      // 18 September 2026
+      if ((m = s.match(new RegExp('\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+' + MONTH_RE.source + '\\.?,?\\s+(\\d{4})', 'i')))) {
+        return iso(+m[3], monthIndex(m[2]), +m[1]);
+      }
+      // Unix timestamp in ms or seconds
+      if (/^\d{10}(\d{3})?$/.test(s.trim())) {
+        var t = +s.trim(); if (t < 1e11) { t *= 1000; }
+        var dt = new Date(t);
+        return iso(dt.getFullYear(), dt.getMonth() + 1, dt.getDate());
+      }
+      return null;
+    }
+
+    // Find "September 2026" style month/year in the nearest calendar header.
+    function findMonthYear(el) {
+      var node = el;
+      for (var depth = 0; node && depth < 8; depth++, node = node.parentElement) {
+        var text = node.textContent || '';
+        var m = text.match(new RegExp(MONTH_RE.source + '\\.?,?\\s+(\\d{4})', 'i'));
+        if (m) { return { month: monthIndex(m[1]), year: +m[2] }; }
+      }
+      return null;
+    }
+
+    // Work out which date a calendar cell represents, or null if it is not a date cell.
+    function dateOfElement(el) {
+      if (!el || el.nodeType !== 1) { return null; }
+      var attrs = ['data-date', 'data-day', 'data-value', 'data-timestamp', 'data-time', 'datetime', 'value', 'aria-label', 'title'];
+      for (var i = 0; i < attrs.length; i++) {
+        var v = el.getAttribute(attrs[i]);
+        var d = parseDateString(v);
+        if (d) { return d; }
+      }
+      // Bare day number inside a calendar grid, e.g. <td>18</td> under "September 2026".
+      var txt = (el.textContent || '').trim();
+      if (/^\d{1,2}$/.test(txt)) {
+        var looksLikeCell = el.getAttribute('role') === 'gridcell' ||
+          /(^|[\s_-])(day|date|cell)([\s_-]|$)/i.test(el.className || '') ||
+          (el.parentElement && el.parentElement.getAttribute('role') === 'gridcell') ||
+          el.tagName === 'TD';
+        if (looksLikeCell) {
+          var my = findMonthYear(el);
+          if (my) { return iso(my.year, my.month, +txt); }
+        }
+      }
+      return null;
+    }
+
+    function isBlocked(el) {
+      var d = dateOfElement(el);
+      return !!(d && blocked[d]);
+    }
+
+    // ---- Layer 1: disable blocked day cells as they render -----------------
+    var CELL_SELECTOR = '[data-date],[data-day],[data-value],[data-timestamp],[datetime],[role="gridcell"],td,button,[class*="day"],[class*="date"]';
+
+    function markCells(root) {
+      var nodes = root.querySelectorAll ? root.querySelectorAll(CELL_SELECTOR) : [];
+      for (var i = 0; i < nodes.length; i++) {
+        var el = nodes[i];
+        if (el.classList.contains('bbg-blocked-date')) { continue; }
+        if (isBlocked(el)) {
+          el.classList.add('bbg-blocked-date');
+          el.setAttribute('aria-disabled', 'true');
+          if ('disabled' in el) { el.disabled = true; }
+          el.setAttribute('title', 'Closed');
+          // Also disable an inner button/anchor, if the cell wraps one.
+          var inner = el.querySelector && el.querySelector('button,a,input');
+          if (inner) { inner.classList.add('bbg-blocked-date'); if ('disabled' in inner) { inner.disabled = true; } }
+        }
+      }
+    }
+
+    var scheduled = false;
+    function scheduleScan() {
+      if (scheduled) { return; }
+      scheduled = true;
+      (window.requestAnimationFrame || setTimeout)(function () {
+        scheduled = false;
+        try { markCells(document); } catch (e) { /* never break the page */ }
+      });
+    }
+
+    function start() {
+      scheduleScan();
+      if (window.MutationObserver) {
+        new MutationObserver(scheduleScan).observe(document.documentElement, {
+          childList: true, subtree: true, attributes: true,
+          attributeFilter: ['data-date', 'data-day', 'data-value', 'datetime', 'aria-label', 'class']
+        });
+      }
+      // Belt and braces for widgets that render without DOM mutations we catch.
+      setInterval(scheduleScan, 1500);
+    }
+    if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', start); } else { start(); }
+
+    // ---- Notice ------------------------------------------------------------
+    var noticeTimer;
+    function showNotice(text) {
+      var n = document.getElementById('bbg-notice');
+      if (!n) {
+        n = document.createElement('div');
+        n.id = 'bbg-notice';
+        n.setAttribute('role', 'alert');
+        document.body.appendChild(n);
+      }
+      n.textContent = text;
+      n.hidden = false;
+      clearTimeout(noticeTimer);
+      noticeTimer = setTimeout(function () { n.hidden = true; }, 4000);
+    }
+
+    // ---- Layer 2: swallow clicks on blocked dates --------------------------
+    function blockedTarget(target) {
+      var node = target;
+      for (var depth = 0; node && depth < 5; depth++, node = node.parentElement) {
+        if (isBlocked(node)) { return node; }
+      }
+      return null;
+    }
+    ['click', 'mousedown', 'touchstart', 'pointerdown', 'keydown'].forEach(function (type) {
+      document.addEventListener(type, function (e) {
+        if (type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') { return; }
+        var hit = blockedTarget(e.target);
+        if (hit) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          hit.classList.add('bbg-blocked-date');
+          if (type === 'click' || type === 'keydown') { showNotice(NOTICE_TEXT); }
+        }
+      }, true);
+    });
+
+    // ---- Layer 3: refuse bookings that still carry a blocked date ----------
+    function valueHasBlockedDate(v) {
+      if (typeof v !== 'string') { return false; }
+      var d = parseDateString(v);
+      return !!(d && blocked[d]);
+    }
+    function bodyHasBlockedDate(body) {
+      try {
+        if (!body) { return false; }
+        if (typeof body === 'string') {
+          var s = body;
+          try { s = decodeURIComponent(body.replace(/\+/g, ' ')); } catch (e) { /* keep raw */ }
+          return s.split(/[&\n"]/).some(valueHasBlockedDate);
+        }
+        if (typeof FormData !== 'undefined' && body instanceof FormData) {
+          var found = false;
+          body.forEach(function (v) { if (valueHasBlockedDate(v)) { found = true; } });
+          return found;
+        }
+        if (typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams) {
+          return bodyHasBlockedDate(body.toString());
+        }
+      } catch (e) { /* ignore */ }
+      return false;
+    }
+    function isCartAdd(url) { return /\/cart\/add(\.js)?(\?|$)/.test(String(url || '')); }
+
+    if (window.fetch) {
+      var origFetch = window.fetch;
+      window.fetch = function (input, init) {
+        try {
+          var url = typeof input === 'string' ? input : (input && input.url);
+          if (isCartAdd(url) && init && bodyHasBlockedDate(init.body)) {
+            showNotice(NOTICE_TEXT);
+            return Promise.reject(new Error('Booking date is blocked'));
+          }
+        } catch (e) { /* fall through */ }
+        return origFetch.apply(this, arguments);
+      };
+    }
+    if (window.XMLHttpRequest) {
+      var origOpen = XMLHttpRequest.prototype.open;
+      var origSend = XMLHttpRequest.prototype.send;
+      XMLHttpRequest.prototype.open = function (method, url) { this.__bbgUrl = url; return origOpen.apply(this, arguments); };
+      XMLHttpRequest.prototype.send = function (body) {
+        try {
+          if (isCartAdd(this.__bbgUrl) && bodyHasBlockedDate(body)) {
+            showNotice(NOTICE_TEXT);
+            this.abort();
+            return;
+          }
+        } catch (e) { /* fall through */ }
+        return origSend.apply(this, arguments);
+      };
+    }
+    document.addEventListener('submit', function (e) {
+      var form = e.target;
+      if (!form || form.tagName !== 'FORM') { return; }
+      if (!isCartAdd(form.getAttribute('action')) && !/booking|appointment/i.test(form.className + ' ' + (form.id || ''))) { return; }
+      try {
+        if (bodyHasBlockedDate(new FormData(form))) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          showNotice(NOTICE_TEXT);
+        }
+      } catch (err) { /* ignore */ }
+    }, true);
+  })();
+</script>
