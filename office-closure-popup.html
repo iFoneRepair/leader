@@ -1,0 +1,110 @@
+<!--
+  Office Closure Popup
+  ====================
+  Paste this entire block just before the closing </body> tag of the homepage.
+  It shows immediately on page load, can be dismissed, and hides itself
+  automatically after the closure ends (end of Saturday, Sep 20, 2026).
+-->
+<style>
+  #closure-popup-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 99999;
+    padding: 16px;
+    box-sizing: border-box;
+  }
+  #closure-popup {
+    background: #ffffff;
+    color: #1a1a1a;
+    max-width: 440px;
+    width: 100%;
+    border-radius: 12px;
+    padding: 28px 24px 24px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+    text-align: center;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    position: relative;
+    box-sizing: border-box;
+  }
+  #closure-popup h2 {
+    margin: 0 0 12px;
+    font-size: 22px;
+    line-height: 1.25;
+  }
+  #closure-popup p {
+    margin: 0 0 8px;
+    font-size: 16px;
+    line-height: 1.5;
+  }
+  #closure-popup .closure-dates {
+    font-weight: 700;
+    font-size: 18px;
+    margin: 12px 0 16px;
+  }
+  #closure-popup-close {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: none;
+    border: none;
+    font-size: 26px;
+    line-height: 1;
+    cursor: pointer;
+    color: #666;
+    padding: 6px 10px;
+  }
+  #closure-popup-close:hover { color: #000; }
+  #closure-popup-ok {
+    display: inline-block;
+    margin-top: 8px;
+    background: #1a1a1a;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 12px 28px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  #closure-popup-ok:hover { background: #333; }
+</style>
+
+<div id="closure-popup-overlay" role="dialog" aria-modal="true" aria-labelledby="closure-popup-title" hidden>
+  <div id="closure-popup">
+    <button id="closure-popup-close" type="button" aria-label="Close">&times;</button>
+    <h2 id="closure-popup-title">Office Closure Notice</h2>
+    <p>Please note that our office will be closed on:</p>
+    <p class="closure-dates">Thursday, Friday &amp; Saturday<br>September 18, 19 &amp; 20</p>
+    <p>We will reopen with normal hours afterward. We apologize for any inconvenience and thank you for your understanding.</p>
+    <button id="closure-popup-ok" type="button">OK, got it</button>
+  </div>
+</div>
+
+<script>
+  (function () {
+    // Popup stops showing automatically after this moment (end of Saturday, local time).
+    var closureEnds = new Date(2026, 8, 20, 23, 59, 59); // months are 0-based: 8 = September
+    if (new Date() > closureEnds) { return; }
+
+    var overlay = document.getElementById('closure-popup-overlay');
+    if (!overlay) { return; }
+
+    function hide() {
+      overlay.hidden = true;
+      document.body.style.overflow = '';
+    }
+
+    document.getElementById('closure-popup-close').addEventListener('click', hide);
+    document.getElementById('closure-popup-ok').addEventListener('click', hide);
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) { hide(); } });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { hide(); } });
+
+    // Show immediately on load.
+    overlay.hidden = false;
+    document.body.style.overflow = 'hidden';
+  })();
+</script>
