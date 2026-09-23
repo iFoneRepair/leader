@@ -1,0 +1,155 @@
+<!--
+  Quote Modal — Optional Name Override
+  ====================================
+  Makes the name field(s) optional in the booking widget's
+  "📩 Text / Email me this quote" modal (#pirbw-qmodal), without touching the
+  widget snippet or the Vercel backend.
+
+  How it works
+    • The name input(s) stay on the form, but lose the `required` flag and their
+      label/placeholder changes from "(required)" to "(optional)".
+    • When the customer sends the quote with the name blank, the override fills
+      the name with "No name given" for the instant the widget reads the form,
+      so both the widget's own check and the backend's "name required" rule
+      pass. The field is cleared again right after, so the customer never has
+      to type a name. Phone only (or email only) is enough, exactly as before
+      for the contact rule.
+    • The owner's QUOTE REQUEST alert shows "No name given" in the name slot.
+
+  Install (no Mac needed)
+    Shopify admin → Online Store → Themes → ⋯ → Edit code → layout/theme.liquid
+    → paste this whole block just before </body> → Save.
+    It is inert on pages without the quote modal, so site-wide is fine.
+
+  Remove once the widget and backend are updated to make the name optional
+  natively.
+-->
+<script>
+  (function () {
+    var MODAL_SELECTOR = '#pirbw-qmodal';
+    var FALLBACK_NAME = 'No name given';
+    var MARK = 'data-pir-optional-name';
+
+    function isNameInput(el) {
+      if (!el || el.tagName !== 'INPUT') { return false; }
+      var type = (el.getAttribute('type') || 'text').toLowerCase();
+      if (type !== 'text') { return false; }
+      var key = [el.id, el.name, el.placeholder, el.getAttribute('aria-label')].join(' ').toLowerCase();
+      if (/company|honeypot/.test(key)) { return false; }            // never touch the bot trap
+      if (/phone|mobile|tel|email|mail|zip|coupon/.test(key)) { return false; }
+      if (/name/.test(key)) { return true; }
+      var label = labelFor(el);
+      return !!(label && /name/i.test(label.textContent || '') && !/company/i.test(label.textContent || ''));
+    }
+
+    function labelFor(el) {
+      if (el.id) {
+        var l = document.querySelector('label[for="' + el.id + '"]');
+        if (l) { return l; }
+      }
+      return el.closest ? el.closest('label') : null;
+    }
+
+    function nameInputs(modal) {
+      var out = [];
+      var inputs = modal.querySelectorAll('input');
+      for (var i = 0; i < inputs.length; i++) { if (isNameInput(inputs[i])) { out.push(inputs[i]); } }
+      return out;
+    }
+
+    function relabel(text) {
+      return text.replace(/\(\s*required\s*\)/i, '(optional)').replace(/\s*\*\s*$/, '');
+    }
+
+    // Make the name field(s) look and act optional.
+    function relax(modal) {
+      var inputs = nameInputs(modal);
+      for (var i = 0; i < inputs.length; i++) {
+        var el = inputs[i];
+        if (el.getAttribute(MARK)) { continue; }
+        el.setAttribute(MARK, '1');
+        el.removeAttribute('required');
+        el.removeAttribute('aria-required');
+        if (el.placeholder) { el.placeholder = relabel(el.placeholder); }
+        var label = labelFor(el);
+        if (label) {
+          for (var n = 0; n < label.childNodes.length; n++) {
+            var node = label.childNodes[n];
+            if (node.nodeType === 3 && /required|\*/i.test(node.nodeValue)) { node.nodeValue = relabel(node.nodeValue); }
+          }
+        }
+      }
+    }
+
+    // Fill blank name(s) for the instant the widget reads the form, then clear.
+    function fillIfBlank(modal) {
+      var inputs = nameInputs(modal);
+      if (!inputs.length) { return; }
+      var allBlank = inputs.every(function (el) { return !el.value.trim(); });
+      if (!allBlank) { return; }
+      var parts = inputs.length === 1 ? [FALLBACK_NAME] : ['No name', 'given'];
+      inputs.forEach(function (el, i) {
+        el.value = parts[i] || parts[parts.length - 1];
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      setTimeout(function () {
+        inputs.forEach(function (el) {
+          if (el.value === (parts[0]) || parts.indexOf(el.value) !== -1) {
+            el.value = '';
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+        });
+      }, 400);
+    }
+
+    function isSendControl(target, modal) {
+      var node = target;
+      for (var depth = 0; node && node !== modal && depth < 6; depth++, node = node.parentElement) {
+        if (node.tagName === 'BUTTON' || node.getAttribute('role') === 'button' ||
+            (node.tagName === 'INPUT' && /submit|button/i.test(node.type || ''))) {
+          var txt = ((node.textContent || '') + ' ' + (node.value || '') + ' ' + (node.id || '') + ' ' + (node.className || '')).toLowerCase();
+          if (/send|submit|text|email|quote/.test(txt) && !/close|cancel|back/.test(txt)) { return true; }
+        }
+      }
+      return false;
+    }
+
+    // Capture-phase hooks run before the widget's own handlers.
+    document.addEventListener('click', function (e) {
+      var modal = document.querySelector(MODAL_SELECTOR);
+      if (!modal || !modal.contains(e.target)) { return; }
+      if (isSendControl(e.target, modal)) { fillIfBlank(modal); }
+    }, true);
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter') { return; }
+      var modal = document.querySelector(MODAL_SELECTOR);
+      if (!modal || !modal.contains(e.target)) { return; }
+      if (e.target.tagName === 'TEXTAREA') { return; }
+      fillIfBlank(modal);
+    }, true);
+    document.addEventListener('submit', function (e) {
+      var modal = document.querySelector(MODAL_SELECTOR);
+      if (modal && modal.contains(e.target)) { fillIfBlank(modal); }
+    }, true);
+
+    var scheduled = false;
+    function scan() {
+      if (scheduled) { return; }
+      scheduled = true;
+      (window.requestAnimationFrame || setTimeout)(function () {
+        scheduled = false;
+        try {
+          var modal = document.querySelector(MODAL_SELECTOR);
+          if (modal) { relax(modal); }
+        } catch (err) { /* never break the page */ }
+      });
+    }
+    function start() {
+      scan();
+      if (window.MutationObserver) {
+        new MutationObserver(scan).observe(document.documentElement, { childList: true, subtree: true });
+      }
+    }
+    if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', start); } else { start(); }
+  })();
+</script>

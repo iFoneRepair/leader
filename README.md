@@ -52,3 +52,28 @@ Keep the app-side block in place as well.
 
 Edit `BLOCKED_DATES` (YYYY-MM-DD, one per closure day) and `GUARD_ENDS` at the top of
 the script. `NOTICE_TEXT` controls the message customers see.
+
+---
+
+# Quote Modal — Optional Name Override
+
+`quote-optional-name.html` makes the name field optional in the booking widget's
+**"📩 Text / Email me this quote"** modal on `/pages/appointmentpro` and `/pages/quote`,
+without editing the widget snippet or redeploying the Vercel backend.
+
+A phone number alone (or an email alone) is enough to send the quote. The name field
+stays on the form. When a customer leaves it blank, the override fills it with
+"No name given" for the instant the widget reads the form, so the widget's own check
+and the backend's name rule both pass, then clears it again. The owner's QUOTE REQUEST
+alert shows "No name given" in the name slot.
+
+## How to add it (no Mac needed)
+
+1. Shopify admin → Online Store → Themes → ⋯ → Edit code → `layout/theme.liquid`.
+2. Paste the full contents of `quote-optional-name.html` just before the closing `</body>` tag.
+3. Save. It is inert on pages without the quote modal, so site-wide is fine.
+
+## Removing it
+
+Delete the block once `pir-booking-widget.liquid`, `pir-quote-widget.liquid` and
+`booking-backend/api/quote.js` are updated to make the name optional natively.
