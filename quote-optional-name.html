@@ -70,13 +70,17 @@
         el.setAttribute(MARK, '1');
         el.removeAttribute('required');
         el.removeAttribute('aria-required');
-        if (el.placeholder) { el.placeholder = relabel(el.placeholder); }
+        if (el.placeholder) {
+          el.placeholder = relabel(el.placeholder);
+          if (!/optional/i.test(el.placeholder)) { el.placeholder += ' (optional)'; }
+        }
         var label = labelFor(el);
         if (label) {
           for (var n = 0; n < label.childNodes.length; n++) {
             var node = label.childNodes[n];
             if (node.nodeType === 3 && /required|\*/i.test(node.nodeValue)) { node.nodeValue = relabel(node.nodeValue); }
           }
+          if (!/optional/i.test(label.textContent || '')) { label.appendChild(document.createTextNode(' (optional)')); }
         }
       }
     }
