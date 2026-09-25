@@ -1,0 +1,109 @@
+<!--
+  Mobile Product Title Layout
+  ===========================
+  Paste this entire block just before the closing </body> tag of the theme
+  (theme.liquid on Shopify). On phones it moves the product title out of the
+  narrow column next to the image and places it at the top of the product
+  section, full width and left aligned. On desktop the title stays where the
+  theme puts it.
+-->
+<style>
+  @media (max-width: 749px) {
+    #pir-mobile-title {
+      grid-column: 1 / -1;      /* full row when the parent is a CSS grid  */
+      flex-basis: 100%;         /* full row when the parent is a flex box  */
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+      order: -1;                /* always first inside flex/grid parents   */
+      margin: 0 0 12px;
+      padding: 0;
+      text-align: left;
+    }
+    #pir-mobile-title h1,
+    #pir-mobile-title .pir-title {
+      display: block;
+      width: 100%;
+      max-width: 100%;
+      margin: 0;
+      text-align: left;
+      font-size: 24px;
+      line-height: 1.25;
+      word-wrap: break-word;
+    }
+  }
+</style>
+<script>
+  (function () {
+    var MOBILE = window.matchMedia('(max-width: 749px)');
+    var wrapper = null;      // <div id="pir-mobile-title"> holding the title on mobile
+    var placeholder = null;  // marker left at the title's original position
+    var title = null;
+
+    function findTitle() {
+      var form = document.querySelector('form[action*="/cart/add"]');
+      if (!form) return null;
+      var node = form.parentElement;
+      while (node && node !== document.body) {
+        var h1 = node.querySelector('h1');
+        if (h1) return h1;
+        node = node.parentElement;
+      }
+      return document.querySelector('main h1, h1');
+    }
+
+    function findMedia(fromTitle) {
+      var node = fromTitle.parentElement;
+      while (node && node !== document.body) {
+        var media = node.querySelector('img, video, iframe, [class*="media"], [class*="gallery"]');
+        if (media && !fromTitle.contains(media)) return media;
+        node = node.parentElement;
+      }
+      return null;
+    }
+
+    function commonAncestor(a, b) {
+      var node = a.parentElement;
+      while (node && !node.contains(b)) node = node.parentElement;
+      return node;
+    }
+
+    function moveToTop() {
+      if (wrapper) return;
+      title = title || findTitle();
+      if (!title) return;
+      var media = findMedia(title);
+      var container = media ? commonAncestor(title, media) : title.parentElement;
+      if (!container || container === title.parentElement && !media) return;
+
+      placeholder = document.createComment('pir-title-placeholder');
+      title.parentNode.insertBefore(placeholder, title);
+
+      wrapper = document.createElement('div');
+      wrapper.id = 'pir-mobile-title';
+      wrapper.appendChild(title);
+      container.insertBefore(wrapper, container.firstChild);
+    }
+
+    function restore() {
+      if (!wrapper) return;
+      placeholder.parentNode.insertBefore(title, placeholder);
+      placeholder.parentNode.removeChild(placeholder);
+      wrapper.parentNode.removeChild(wrapper);
+      wrapper = null;
+      placeholder = null;
+    }
+
+    function apply() {
+      if (MOBILE.matches) moveToTop(); else restore();
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', apply);
+    } else {
+      apply();
+    }
+    if (MOBILE.addEventListener) MOBILE.addEventListener('change', apply);
+    else MOBILE.addListener(apply);
+  })();
+</script>
